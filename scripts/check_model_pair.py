@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,7 +36,13 @@ def load_datasets(result_path: str, backdoorbench_root: str):
         sys.path.insert(0, root)
     from utils.save_load_attack import load_attack_result
 
-    return load_attack_result(result_path)
+    # BackdoorBench stores generated image paths relative to its own root.
+    previous_cwd = os.getcwd()
+    try:
+        os.chdir(root)
+        return load_attack_result(result_path)
+    finally:
+        os.chdir(previous_cwd)
 
 
 def evaluate_one(result_path: str, datasets: dict, *, root: str, device: torch.device, workers: int) -> dict:

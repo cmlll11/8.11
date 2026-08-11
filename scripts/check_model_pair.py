@@ -37,12 +37,10 @@ def load_datasets(result_path: str, backdoorbench_root: str):
     from utils.save_load_attack import load_attack_result
 
     # BackdoorBench stores generated image paths relative to its own root.
-    previous_cwd = os.getcwd()
-    try:
-        os.chdir(root)
-        return load_attack_result(result_path)
-    finally:
-        os.chdir(previous_cwd)
+    # Keep this working directory for DataLoader iteration, which happens after
+    # load_attack_result returns and still uses the stored relative paths.
+    os.chdir(root)
+    return load_attack_result(result_path)
 
 
 def evaluate_one(result_path: str, datasets: dict, *, root: str, device: torch.device, workers: int) -> dict:

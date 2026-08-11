@@ -9,9 +9,9 @@ from pathlib import Path
 import torch
 
 from mdluap.codec import mapping_description_length_bits
-from mdluap.data import cifar10_dataset, loader
-from mdluap.gap import UniversalGAPMapping, build_official_gap_generator
-from mdluap.mappings import TargetedImageDependentMapping
+from mdluap.data import cifar10_split, loader
+from mdluap.gap import build_official_gap_generator
+from mdluap.mappings import TargetedImageDependentMapping, TargetedUniversalMapping
 from mdluap.models import load_attack_result_model
 
 
@@ -44,6 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gap-root", required=True)
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--split", choices=("val", "test"), required=True)
+    parser.add_argument("--split-seed", type=int, default=2026)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--device", default="cuda:0")
@@ -59,19 +61,19 @@ def main() -> None:
         device=device,
     )
     checkpoint = torch.load(args.mapping, map_location=device, weights_only=False)
-    generator = build_official_gap_generator(
-        gap_root=args.gap_root,
-        device=device,
-        ngf=int(checkpoint.get("ngf", 64)),
-    )
     if checkpoint["mode"] == "universal":
-        mapping = UniversalGAPMapping(generator, checkpoint["noise"].to(device), checkpoint["epsilon"])
+        mapping = TargetedUniversalMapping(checkpoint["universal_delta"], checkpoint["epsilon"])
     else:
+        generator = build_official_gap_generator(
+            gap_root=args.gap_root,
+            device=device,
+            ngf=int(checkpoint.get("ngf", 64)),
+        )
         mapping = TargetedImageDependentMapping(generator, checkpoint["epsilon"])
-    mapping.load_state_dict(checkpoint["mapping"], strict=True)
+        mapping.load_state_dict(checkpoint["mapping"], strict=True)
     mapping.to(device).eval()
 
-    dataset = cifar10_dataset(args.data_root, train=False)
+    dataset = cifar10_split(args.data_root, split=args.split, split_seed=args.split_seed)
     metrics = evaluate(
         model,
         mapping,
@@ -80,8 +82,18 @@ def main() -> None:
         device=device,
     )
     metrics.update(mapping_description_length_bits(args.mapping))
-    metrics.update({"result": str(Path(args.result).resolve()), "mapping": str(Path(args.mapping).resolve())})
-    Path(args.output).write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    metrics.update(
+        {
+            "split": args.split,
+            "result": str(Path(args.result).resolve()),
+            "mapping": str(Path(args.mapping).resolve()),
+        }
+    )
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output_tmp = output.with_suffix(output.suffix + ".tmp")
+    output_tmp.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    output_tmp.replace(output)
     print(json.dumps(metrics, indent=2))
 
 

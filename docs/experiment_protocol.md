@@ -49,3 +49,10 @@ clean 和 backdoor 侧使用相同的 GAP 结构、epsilon ladder、数据划分
 服务器入口是 `scripts/train_mapping.py` 和 `scripts/evaluate_mapping.py`。
 它们读取官方 BackdoorBench 的 `attack_result.pt`，并要求服务器上的 CIFAR-10
 数据目录；运行前安装本仓库或设置 `PYTHONPATH=src`。
+
+所有服务器步骤均由 `bash/` 下的脚本包装。BadNets 快速真实验证依次使用：
+
+1. `train_badnet_pair.sh`：训练 seed-0 clean/backdoor 配对模型；
+2. `check_badnet_pair.sh`：检查模型资格门槛；
+3. `run_badnet_mapping_grid.sh`：生成 60 个正式 targeted GAP 候选；
+4. `finalize_badnet_results.sh`：按验证集 MDL 选择并在测试集报告。

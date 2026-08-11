@@ -24,10 +24,15 @@ def mapping_description_length_bits(mapping_path: str) -> dict:
     """Return the compressed bit length under the fixed MDL-UAP-v1 syntax."""
 
     checkpoint = torch.load(mapping_path, map_location="cpu", weights_only=False)
+    if checkpoint["mode"] == "universal":
+        tensors = {"universal_delta": checkpoint["universal_delta"]}
+    else:
+        tensors = checkpoint["mapping"]
+
     records = []
     payload = bytearray()
-    for name in sorted(checkpoint["mapping"]):
-        header, tensor_bytes = _tensor_record(name, checkpoint["mapping"][name])
+    for name in sorted(tensors):
+        header, tensor_bytes = _tensor_record(name, tensors[name])
         records.append(header)
         payload.extend(struct.pack("<I", len(tensor_bytes)))
         payload.extend(tensor_bytes)

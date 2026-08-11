@@ -87,6 +87,7 @@ def train_targeted_gap(
     device: torch.device,
     start_epoch: int = 0,
     checkpoint_path: str | None = None,
+    max_batches: int = 50,
 ) -> dict:
     """Optimize the targeted GAP objective and atomically checkpoint each epoch."""
 
@@ -102,7 +103,9 @@ def train_targeted_gap(
     history: list[float] = []
     for epoch in range(start_epoch, int(epochs)):
         losses = []
-        for images, _labels in train_loader:
+        for batch_index, (images, _labels) in enumerate(train_loader):
+            if batch_index >= int(max_batches):
+                break
             images = images.to(device, non_blocking=True)
             targets = torch.full((images.shape[0],), int(target_label), dtype=torch.long, device=device)
             optimizer.zero_grad(set_to_none=True)

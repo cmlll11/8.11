@@ -18,3 +18,7 @@ are available.
 
 Model checkpoints, SSBA arrays, generated mappings and experiment outputs are
 local/server assets and must not be committed to GitHub.
+
+All GPU-server work is wrapped by scripts under `bash/`. The first validation
+uses the matched seed-0 clean/BadNets pair before extending the same protocol to
+the remaining attacks.

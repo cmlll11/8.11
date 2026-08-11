@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, transforms
 
 
@@ -11,6 +11,20 @@ def cifar10_dataset(root: str, *, train: bool) -> Dataset:
     """Return CIFAR-10 tensors in [0, 1]; model normalization is done later."""
 
     return datasets.CIFAR10(root=root, train=train, transform=transforms.ToTensor(), download=False)
+
+
+def cifar10_split(root: str, *, split: str, split_seed: int = 2026, val_size: int = 5000) -> Dataset:
+    """Return the fixed mapping-train, validation, or untouched test split."""
+
+    if split == "test":
+        return cifar10_dataset(root, train=False)
+    if split not in {"train", "val"}:
+        raise ValueError("split must be train, val, or test")
+    full_train = cifar10_dataset(root, train=True)
+    generator = torch.Generator().manual_seed(int(split_seed))
+    order = torch.randperm(len(full_train), generator=generator).tolist()
+    indices = order[:-int(val_size)] if split == "train" else order[-int(val_size) :]
+    return Subset(full_train, indices)
 
 
 def loader(dataset: Dataset, *, batch_size: int, train: bool, workers: int) -> DataLoader:

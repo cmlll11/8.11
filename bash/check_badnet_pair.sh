@@ -4,7 +4,7 @@
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-CLEAN_RESULT="${BACKDOORBENCH_ROOT}/record/mdl_uap_clean_seed0/attack_result.pt"
+CLEAN_RESULT="${REPO_ROOT}/artifacts/models/clean_seed0_attack_result.pt"
 BACKDOOR_RESULT="${BACKDOORBENCH_ROOT}/record/mdl_uap_badnet_seed0/attack_result.pt"
 
 log_step "Purpose: check classifier gates before fitting any UAP"

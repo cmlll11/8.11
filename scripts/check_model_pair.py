@@ -38,11 +38,10 @@ def load_datasets(result_path: str, backdoorbench_root: str):
     return load_attack_result(result_path)
 
 
-def evaluate_one(result_path: str, *, root: str, device: torch.device, workers: int) -> dict:
+def evaluate_one(result_path: str, datasets: dict, *, root: str, device: torch.device, workers: int) -> dict:
     """Report clean accuracy and official-trigger targeted ASR for one artifact."""
 
     wrapped, _ = load_attack_result_model(result_path, backdoorbench_root=root, device=device)
-    datasets = load_datasets(result_path, root)
     clean_loader = DataLoader(datasets["clean_test"], batch_size=256, shuffle=False, num_workers=workers)
     trigger_loader = DataLoader(datasets["bd_test"], batch_size=256, shuffle=False, num_workers=workers)
     return {
@@ -62,9 +61,23 @@ def main() -> None:
     args = parser.parse_args()
 
     device = torch.device(args.device)
+    # One official BadNets result supplies the identical clean and trigger test sets.
+    datasets = load_datasets(args.backdoor_result, args.backdoorbench_root)
     report = {
-        "clean": evaluate_one(args.clean_result, root=args.backdoorbench_root, device=device, workers=args.workers),
-        "backdoor": evaluate_one(args.backdoor_result, root=args.backdoorbench_root, device=device, workers=args.workers),
+        "clean": evaluate_one(
+            args.clean_result,
+            datasets,
+            root=args.backdoorbench_root,
+            device=device,
+            workers=args.workers,
+        ),
+        "backdoor": evaluate_one(
+            args.backdoor_result,
+            datasets,
+            root=args.backdoorbench_root,
+            device=device,
+            workers=args.workers,
+        ),
         "gates": {"clean_accuracy_min": 0.90, "backdoor_asr_min": 0.90, "clean_trigger_asr_max": 0.10},
     }
     report["passed"] = bool(

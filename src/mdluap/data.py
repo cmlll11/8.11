@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, transforms
@@ -10,7 +12,15 @@ from torchvision import datasets, transforms
 def cifar10_dataset(root: str, *, train: bool) -> Dataset:
     """Return CIFAR-10 tensors in [0, 1]; model normalization is done later."""
 
-    return datasets.CIFAR10(root=root, train=train, transform=transforms.ToTensor(), download=False)
+    dataset_root = Path(root)
+    if dataset_root.name != "cifar10":
+        dataset_root = dataset_root / "cifar10"
+    return datasets.CIFAR10(
+        root=str(dataset_root),
+        train=train,
+        transform=transforms.ToTensor(),
+        download=False,
+    )
 
 
 def cifar10_split(root: str, *, split: str, split_seed: int = 2026, val_size: int = 5000) -> Dataset:

@@ -40,7 +40,19 @@ def load_datasets(result_path: str, backdoorbench_root: str):
     # Keep this working directory for DataLoader iteration, which happens after
     # load_attack_result returns and still uses the stored relative paths.
     os.chdir(root)
-    return load_attack_result(result_path)
+    # The pinned loader predates PyTorch 2.6 and omits weights_only. This is a
+    # trusted artifact created by our own training run, so load the full pickle.
+    original_torch_load = torch.load
+
+    def trusted_torch_load(*args, **kwargs):
+        kwargs.setdefault("weights_only", False)
+        return original_torch_load(*args, **kwargs)
+
+    torch.load = trusted_torch_load
+    try:
+        return load_attack_result(result_path)
+    finally:
+        torch.load = original_torch_load
 
 
 def evaluate_one(result_path: str, datasets: dict, *, root: str, device: torch.device, workers: int) -> dict:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torch
+import numpy as np
 from torch import nn
 
 
@@ -42,15 +43,24 @@ class TargetedImageDependentMapping(nn.Module):
 
 
 class ImageDependentPQMapping(nn.Module):
-    """Generate two image components and combine them as g(x) = p(x) + q(x)."""
+    """Generate p(x)+q(x) with a learnable global L-infinity bound."""
 
-    def __init__(self, generator: nn.Module, epsilon_max: float):
+    def __init__(self, generator: nn.Module, epsilon_max: float, epsilon_init_ratio: float = 0.999):
         super().__init__()
         self.generator = generator
         self.epsilon_max = float(epsilon_max)
+        if not 0.0 < epsilon_init_ratio < 1.0:
+            raise ValueError("epsilon_init_ratio must be between 0 and 1")
+        initial_logit = np.log(epsilon_init_ratio / (1.0 - epsilon_init_ratio))
+        self.epsilon_logit = nn.Parameter(torch.tensor(float(initial_logit)))
+
+    def effective_epsilon(self) -> torch.Tensor:
+        """Return the learned raw-pixel L-infinity bound."""
+
+        return self.epsilon_max * torch.sigmoid(self.epsilon_logit)
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """Return a p+q image projected into the allowed L-infinity ball."""
+        """Return a p+q image with a differentiable learned epsilon bound."""
 
         raw = self.generator(images)
         if raw.shape[1] != 6:
@@ -61,8 +71,8 @@ class ImageDependentPQMapping(nn.Module):
         p = (raw_p + 1.0) / 4.0
         q = (raw_q + 1.0) / 4.0
         raw_delta = p + q - images
-        bounded_delta = raw_delta.clamp(-self.epsilon_max, self.epsilon_max)
-        # Preserve the hard forward bound while allowing gradients to reduce
-        # a saturated perturbation through the actual-epsilon loss.
-        delta = raw_delta + (bounded_delta - raw_delta).detach()
+        epsilon = self.effective_epsilon().to(dtype=images.dtype)
+        # Smooth clipping gives attack loss a gradient with respect to epsilon;
+        # a hard clamp would make the epsilon penalty stay at its upper bound.
+        delta = epsilon * torch.tanh(raw_delta / epsilon.clamp_min(1e-8))
         return (images + delta).clamp(0.0, 1.0)

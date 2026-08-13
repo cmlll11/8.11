@@ -37,3 +37,7 @@ env PYTHON_BIN=/path/to/python GPU_ID=0 DATA_ROOT=/path/to/data \
 
 The four runs are stored under `artifacts/mappings/badnet_pq`, and the concise
 comparison is written to `reports/badnet_pq_summary.json`.
+
+The epsilon-learning follow-up uses the same four settings but stores results
+under `artifacts/mappings/badnet_pq_epslearn` and writes
+`reports/badnet_pq_epslearn_summary.json`.

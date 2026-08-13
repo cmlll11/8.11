@@ -28,6 +28,8 @@ def main() -> None:
                     "success": success,
                     "passed_90_percent": success >= args.success_threshold,
                     "target_0_rate": report.get("target_0_rate"),
+                    "learned_epsilon": report.get("learned_epsilon"),
+                    "learned_epsilon_pixels": report.get("learned_epsilon_pixels"),
                     "mean_linf": report["mean_linf"],
                     "p95_linf": report["p95_linf"],
                     "max_linf": report["max_linf"],

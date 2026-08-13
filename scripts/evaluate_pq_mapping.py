@@ -103,7 +103,11 @@ def main() -> None:
         ngf=int(checkpoint.get("ngf", 64)),
         output_channels=6,
     )
-    mapping = ImageDependentPQMapping(generator, float(checkpoint["epsilon_max"]))
+    mapping = ImageDependentPQMapping(
+        generator,
+        float(checkpoint["epsilon_max"]),
+        epsilon_init_ratio=float(checkpoint.get("epsilon_init_ratio", 0.999)),
+    )
     mapping.load_state_dict(checkpoint["mapping"], strict=True)
     mapping.to(device).eval()
 
@@ -121,6 +125,8 @@ def main() -> None:
         {
             "split": args.split,
             "epsilon_max": float(checkpoint["epsilon_max"]),
+            "learned_epsilon": float(mapping.effective_epsilon().detach().cpu()),
+            "learned_epsilon_pixels": float(mapping.effective_epsilon().detach().cpu()) * 255.0,
             "epsilon_lambda": float(checkpoint["epsilon_lambda"]),
             "result": str(Path(args.result).resolve()),
             "mapping": str(Path(args.mapping).resolve()),

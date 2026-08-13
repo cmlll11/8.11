@@ -184,8 +184,7 @@ def train_pq_gap(
             optimizer.zero_grad(set_to_none=True)
             mapped = mapping(images)
             attack_loss = criterion(model(mapped), attack_labels)
-            linf_per_image = (mapped - images).abs().flatten(1).amax(dim=1)
-            epsilon_loss = float(epsilon_lambda) * 255.0 * linf_per_image.mean()
+            epsilon_loss = float(epsilon_lambda) * 255.0 * mapping.effective_epsilon()
             total_loss = attack_loss + epsilon_loss
             total_loss.backward()
             optimizer.step()
@@ -199,6 +198,7 @@ def train_pq_gap(
             "attack_loss": float(np.mean(attack_losses)) if attack_losses else float("nan"),
             "epsilon_loss": float(np.mean(epsilon_losses)) if epsilon_losses else float("nan"),
             "total_loss": float(np.mean(total_losses)) if total_losses else float("nan"),
+            "learned_epsilon": float(mapping.effective_epsilon().detach().cpu()),
         }
         history.append(epoch_record)
         print(epoch_record, flush=True)

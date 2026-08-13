@@ -39,3 +39,30 @@ class TargetedImageDependentMapping(nn.Module):
         # The official GAP generator ends with tanh, so its output is already signed.
         delta = raw_delta.clamp(-1.0, 1.0) * self.epsilon
         return (images + delta).clamp(0.0, 1.0)
+
+
+class ImageDependentPQMapping(nn.Module):
+    """Generate two image components and combine them as g(x) = p(x) + q(x)."""
+
+    def __init__(self, generator: nn.Module, epsilon_max: float):
+        super().__init__()
+        self.generator = generator
+        self.epsilon_max = float(epsilon_max)
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        """Return a p+q image projected into the allowed L-infinity ball."""
+
+        raw = self.generator(images)
+        if raw.shape[1] != 6:
+            raise RuntimeError("imdep_pq generator must output six channels")
+        raw_p, raw_q = raw.chunk(2, dim=1)
+        # The official GAP generator ends in tanh. Each branch is an image
+        # component in [0, 0.5], so p(x) + q(x) is a complete image in [0, 1].
+        p = (raw_p + 1.0) / 4.0
+        q = (raw_q + 1.0) / 4.0
+        raw_delta = p + q - images
+        bounded_delta = raw_delta.clamp(-self.epsilon_max, self.epsilon_max)
+        # Preserve the hard forward bound while allowing gradients to reduce
+        # a saturated perturbation through the actual-epsilon loss.
+        delta = raw_delta + (bounded_delta - raw_delta).detach()
+        return (images + delta).clamp(0.0, 1.0)

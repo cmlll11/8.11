@@ -22,3 +22,18 @@ local/server assets and must not be committed to GitHub.
 All GPU-server work is wrapped by scripts under `bash/`. The first validation
 uses the matched seed-0 clean/BadNets pair before extending the same protocol to
 the remaining attacks.
+
+## Fast p(x) + q(x) validation
+
+The follow-up experiment trains only image-dependent p+q mappings on the
+existing clean/BadNets pair. It runs targeted and classic least-likely
+non-targeted GAP for 60 epochs with an actual-perturbation penalty and a hard
+`16/255` L-infinity bound:
+
+```bash
+env PYTHON_BIN=/path/to/python GPU_ID=0 DATA_ROOT=/path/to/data \
+  bash bash/run_badnet_pq.sh
+```
+
+The four runs are stored under `artifacts/mappings/badnet_pq`, and the concise
+comparison is written to `reports/badnet_pq_summary.json`.

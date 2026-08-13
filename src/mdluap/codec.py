@@ -37,14 +37,17 @@ def mapping_description_length_bits(mapping_path: str) -> dict:
         payload.extend(struct.pack("<I", len(tensor_bytes)))
         payload.extend(tensor_bytes)
 
+    syntax = {
+        "protocol": "MDL-UAP-v1",
+        "mode": checkpoint["mode"],
+        "target": int(checkpoint["target"]),
+        "epsilon": float(checkpoint["epsilon"]),
+        "records": records,
+    }
+    if "attack_goal" in checkpoint:
+        syntax["attack_goal"] = checkpoint["attack_goal"]
     header_bytes = json.dumps(
-        {
-            "protocol": "MDL-UAP-v1",
-            "mode": checkpoint["mode"],
-            "target": int(checkpoint["target"]),
-            "epsilon": float(checkpoint["epsilon"]),
-            "records": records,
-        },
+        syntax,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")

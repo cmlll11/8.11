@@ -33,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attack-goal", choices=("targeted", "non_targeted"), required=True)
     parser.add_argument("--target", type=int, default=0)
     parser.add_argument("--epsilon-max", type=parse_fraction, default=parse_fraction("16/255"))
+    parser.add_argument("--epsilon-init-ratio", type=float, default=0.999)
     parser.add_argument("--epsilon-lambda", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--split-seed", type=int, default=2026)
@@ -69,7 +70,11 @@ def main() -> None:
         ngf=args.ngf,
         output_channels=6,
     )
-    mapping = ImageDependentPQMapping(generator, args.epsilon_max).to(device)
+    mapping = ImageDependentPQMapping(
+        generator,
+        args.epsilon_max,
+        epsilon_init_ratio=args.epsilon_init_ratio,
+    ).to(device)
     training = train_pq_gap(
         model=model,
         mapping=mapping,
@@ -94,6 +99,8 @@ def main() -> None:
             "target": args.target,
             "epsilon": args.epsilon_max,
             "epsilon_max": args.epsilon_max,
+            "learned_epsilon": float(mapping.effective_epsilon().detach().cpu()),
+            "epsilon_init_ratio": args.epsilon_init_ratio,
             "epsilon_lambda": args.epsilon_lambda,
             "seed": args.seed,
             "split_seed": args.split_seed,

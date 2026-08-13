@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from .mappings import TargetedImageDependentMapping
+from .mappings import ImageDependentPQMapping, TargetedImageDependentMapping
 
 
 def seed_everything(seed: int) -> None:
@@ -23,7 +23,9 @@ def seed_everything(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def build_official_gap_generator(*, gap_root: str, device: torch.device, ngf: int) -> nn.Module:
+def build_official_gap_generator(
+    *, gap_root: str, device: torch.device, ngf: int, output_channels: int = 3
+) -> nn.Module:
     """Construct the generator from the pinned GAP implementation."""
 
     root = str(Path(gap_root).resolve())
@@ -33,7 +35,14 @@ def build_official_gap_generator(*, gap_root: str, device: torch.device, ngf: in
 
     if device.type != "cuda":
         raise RuntimeError("GAP's official generator is intended for the CUDA server run")
-    generator = ResnetGenerator(3, 3, int(ngf), norm_type="batch", act_type="relu", gpu_ids=[device.index or 0])
+    generator = ResnetGenerator(
+        3,
+        int(output_channels),
+        int(ngf),
+        norm_type="batch",
+        act_type="relu",
+        gpu_ids=[device.index or 0],
+    )
     generator.apply(weights_init)
     return generator
 
@@ -120,3 +129,89 @@ def train_targeted_gap(
             torch.save({"epoch": epoch + 1, "mapping": mapping.state_dict(), "optimizer": optimizer.state_dict()}, tmp_path)
             Path(tmp_path).replace(checkpoint_path)
     return {"loss": history, "epoch": int(epochs)}
+
+
+def train_pq_gap(
+    *,
+    model: nn.Module,
+    mapping: ImageDependentPQMapping,
+    train_loader,
+    attack_goal: str,
+    target_label: int,
+    epochs: int,
+    lr: float,
+    epsilon_lambda: float,
+    device: torch.device,
+    checkpoint_path: str | None = None,
+    max_batches: int = 50,
+) -> dict:
+    """Train targeted or classic least-likely non-targeted p+q GAP."""
+
+    if attack_goal not in {"targeted", "non_targeted"}:
+        raise ValueError("attack_goal must be targeted or non_targeted")
+    optimizer = torch.optim.Adam(mapping.parameters(), lr=float(lr), betas=(0.5, 0.999))
+    criterion = nn.CrossEntropyLoss()
+    start_epoch = 0
+    history: list[dict] = []
+    if checkpoint_path and Path(checkpoint_path).exists():
+        state = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        mapping.load_state_dict(state["mapping"])
+        optimizer.load_state_dict(state["optimizer"])
+        start_epoch = int(state["epoch"])
+        history = list(state.get("history", []))
+
+    model.eval()
+    mapping.train()
+    for epoch in range(start_epoch, int(epochs)):
+        attack_losses = []
+        epsilon_losses = []
+        total_losses = []
+        for batch_index, (images, _labels) in enumerate(train_loader):
+            if batch_index >= int(max_batches):
+                break
+            images = images.to(device, non_blocking=True)
+            with torch.no_grad():
+                clean_logits = model(images)
+                if attack_goal == "targeted":
+                    attack_labels = torch.full(
+                        (images.shape[0],), int(target_label), dtype=torch.long, device=device
+                    )
+                else:
+                    # This matches classic GAP: move each image toward its
+                    # least-likely class under the unperturbed classifier.
+                    attack_labels = clean_logits.argmin(dim=1)
+
+            optimizer.zero_grad(set_to_none=True)
+            mapped = mapping(images)
+            attack_loss = criterion(model(mapped), attack_labels)
+            linf_per_image = (mapped - images).abs().flatten(1).amax(dim=1)
+            epsilon_loss = float(epsilon_lambda) * 255.0 * linf_per_image.mean()
+            total_loss = attack_loss + epsilon_loss
+            total_loss.backward()
+            optimizer.step()
+
+            attack_losses.append(float(attack_loss.detach().cpu()))
+            epsilon_losses.append(float(epsilon_loss.detach().cpu()))
+            total_losses.append(float(total_loss.detach().cpu()))
+
+        epoch_record = {
+            "epoch": epoch + 1,
+            "attack_loss": float(np.mean(attack_losses)) if attack_losses else float("nan"),
+            "epsilon_loss": float(np.mean(epsilon_losses)) if epsilon_losses else float("nan"),
+            "total_loss": float(np.mean(total_losses)) if total_losses else float("nan"),
+        }
+        history.append(epoch_record)
+        print(epoch_record, flush=True)
+        if checkpoint_path:
+            tmp_path = f"{checkpoint_path}.tmp"
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "mapping": mapping.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "history": history,
+                },
+                tmp_path,
+            )
+            Path(tmp_path).replace(checkpoint_path)
+    return {"history": history, "epoch": int(epochs)}

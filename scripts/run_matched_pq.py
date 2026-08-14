@@ -11,7 +11,10 @@ import numpy as np
 import torch
 from torch import nn
 
-from mdluap.codec import mapping_description_length_bits
+from mdluap.codec import (
+    SUPPORTED_QUANTIZATION_BITS,
+    quantized_mapping_state_dict,
+)
 from mdluap.data import cifar10_split, loader
 from mdluap.gap import build_official_gap_generator, seed_everything
 from mdluap.mappings import FixedEpsilonPQMapping
@@ -130,6 +133,50 @@ def load_mapping_state(mapping: FixedEpsilonPQMapping, path: Path) -> None:
     mapping.load_state_dict(checkpoint["mapping"], strict=True)
 
 
+def find_minimum_valid_encoding(
+    *,
+    path: Path,
+    mapping: FixedEpsilonPQMapping,
+    model,
+    data_loader,
+    attack_goal: str,
+    target: int,
+    asr_target: float,
+    match_tolerance: float,
+    device: torch.device,
+) -> tuple[dict | None, list[dict]]:
+    """Find the shortest decoded mapping that keeps the matched validation ASR."""
+
+    candidates = []
+    for quantization_bits in sorted(SUPPORTED_QUANTIZATION_BITS):
+        state_dict, code = quantized_mapping_state_dict(str(path), quantization_bits)
+        mapping.load_state_dict(state_dict, strict=True)
+        validation = evaluate_mapping(
+            model,
+            mapping,
+            data_loader,
+            attack_goal=attack_goal,
+            target=target,
+            device=device,
+        )
+        record = {
+            "quantization_bits": quantization_bits,
+            "bits": code["bits"],
+            "val_asr": validation["asr"],
+            "asr_error": abs(validation["asr"] - asr_target),
+            "valid": abs(validation["asr"] - asr_target) <= match_tolerance,
+        }
+        candidates.append(record)
+
+    valid = [item for item in candidates if item["valid"]]
+    if not valid:
+        return None, candidates
+    selected = min(valid, key=lambda item: (item["bits"], item["quantization_bits"]))
+    state_dict, _ = quantized_mapping_state_dict(str(path), selected["quantization_bits"])
+    mapping.load_state_dict(state_dict, strict=True)
+    return selected, candidates
+
+
 def evaluate_checkpoint(
     *,
     path: Path,
@@ -140,7 +187,7 @@ def evaluate_checkpoint(
     target: int,
     device: torch.device,
 ) -> dict:
-    """Evaluate one selected checkpoint and calculate its MDL length."""
+    """Evaluate one uncompressed checkpoint."""
 
     load_mapping_state(mapping, path)
     metrics = evaluate_mapping(
@@ -151,7 +198,6 @@ def evaluate_checkpoint(
         target=target,
         device=device,
     )
-    metrics.update(mapping_description_length_bits(str(path)))
     metrics["checkpoint"] = str(path.resolve())
     return metrics
 
@@ -232,6 +278,7 @@ def train_one_epsilon(
     checkpoints = output / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
     selected: dict[str, dict] = {}
+    first_matched_epoch: dict[str, int] = {}
     best_record: dict | None = None
     best_path = checkpoints / "best_asr.pt"
     curve: list[dict] = []
@@ -291,6 +338,7 @@ def train_one_epsilon(
             if distance > float(match_tolerance):
                 continue
             key = f"asr{int(round(asr_target * 100)):02d}"
+            first_matched_epoch.setdefault(key, epoch)
             previous = selected.get(key)
             if previous is not None and (
                 distance > previous["asr_error"]
@@ -302,6 +350,7 @@ def train_one_epsilon(
             selected[key] = {
                 "asr_target": float(asr_target),
                 "epoch": epoch,
+                "first_matched_epoch": first_matched_epoch[key],
                 "val_asr": record["val_asr"],
                 "asr_error": distance,
                 "checkpoint": str(checkpoint_path.resolve()),
@@ -330,31 +379,55 @@ def train_one_epsilon(
     (output / "best_asr.json").write_text(json.dumps(best_summary, indent=2), encoding="utf-8")
 
     matched_results = []
+    compression_searches = {}
     for key, choice in sorted(selected.items()):
-        test_metrics = evaluate_checkpoint(
-            path=Path(choice["checkpoint"]),
+        checkpoint_path = Path(choice["checkpoint"])
+        minimum, candidates = find_minimum_valid_encoding(
+            path=checkpoint_path,
             mapping=mapping,
             model=model,
-            data_loader=test_loader,
+            data_loader=val_loader,
+            attack_goal=attack_goal,
+            target=target,
+            asr_target=choice["asr_target"],
+            match_tolerance=match_tolerance,
+            device=device,
+        )
+        compression_searches[key] = candidates
+        if minimum is None:
+            matched_results.append(
+                {
+                    "side": side,
+                    "attack_goal": attack_goal,
+                    "epsilon_pixels": epsilon_pixels,
+                    "asr_target": choice["asr_target"],
+                    "first_matched_epoch": choice["first_matched_epoch"],
+                    "val_asr": None,
+                    "test_asr": None,
+                    "minimum_valid_bits": None,
+                    "status": "encoding_unmatched",
+                }
+            )
+            continue
+
+        test_metrics = evaluate_mapping(
+            model,
+            mapping,
+            test_loader,
             attack_goal=attack_goal,
             target=target,
             device=device,
         )
         matched_results.append(
             {
-                **base_metadata,
+                "side": side,
+                "attack_goal": attack_goal,
+                "epsilon_pixels": epsilon_pixels,
                 "asr_target": choice["asr_target"],
-                "selected_epoch": choice["epoch"],
-                "val_asr": choice["val_asr"],
+                "first_matched_epoch": choice["first_matched_epoch"],
+                "val_asr": minimum["val_asr"],
                 "test_asr": test_metrics["asr"],
-                "asr_error": choice["asr_error"],
-                "mean_linf": test_metrics["mean_linf"],
-                "p95_linf": test_metrics["p95_linf"],
-                "max_linf": test_metrics["max_linf"],
-                "bits": test_metrics["bits"],
-                "bytes": test_metrics["bytes"],
-                "target_0_rate": test_metrics.get("target_0_rate"),
-                "checkpoint": choice["checkpoint"],
+                "minimum_valid_bits": minimum["bits"],
                 "status": "matched",
             }
         )
@@ -368,17 +441,10 @@ def train_one_epsilon(
             {
                 **base_metadata,
                 "asr_target": float(asr_target),
-                "selected_epoch": None,
+                "first_matched_epoch": None,
                 "val_asr": None,
                 "test_asr": None,
-                "asr_error": None,
-                "mean_linf": None,
-                "p95_linf": None,
-                "max_linf": None,
-                "bits": None,
-                "bytes": None,
-                "target_0_rate": None,
-                "checkpoint": None,
+                "minimum_valid_bits": None,
                 "status": "unmatched",
             }
         )
@@ -391,6 +457,7 @@ def train_one_epsilon(
         "matched_count": len(matched_results),
         "matched": matched_results,
         "target_records": sorted(target_records, key=lambda item: item["asr_target"]),
+        "compression_searches": compression_searches,
         "validation_curve": str(curve_path.resolve()),
         "best_checkpoint": str(best_path.resolve()),
     }
@@ -417,21 +484,31 @@ def build_pairwise(results: list[dict], asr_targets: list[float], epsilon_pixels
                     "attack_goal": goal,
                     "epsilon_pixels": epsilon,
                     "asr_target": target,
-                    "status": "matched_pair" if clean and backdoor else "incomplete_pair",
+                    "status": (
+                        "matched_pair"
+                        if clean and backdoor and clean["status"] == "matched" and backdoor["status"] == "matched"
+                        else "incomplete_pair"
+                    ),
                 }
                 for side, item in (("clean", clean), ("backdoor", backdoor)):
                     pair[f"{side}_val_asr"] = item["val_asr"] if item else None
                     pair[f"{side}_test_asr"] = item["test_asr"] if item else None
-                    pair[f"{side}_bits"] = item["bits"] if item else None
-                    pair[f"{side}_mean_linf"] = item["mean_linf"] if item else None
-                    pair[f"{side}_p95_linf"] = item["p95_linf"] if item else None
-                if clean and backdoor:
+                    pair[f"{side}_first_matched_epoch"] = (
+                        item["first_matched_epoch"] if item else None
+                    )
+                    pair[f"{side}_minimum_valid_bits"] = (
+                        item["minimum_valid_bits"] if item else None
+                    )
+                if pair["status"] == "matched_pair":
                     pair.update(
                         {
-                            "backdoor_minus_clean_bits": backdoor["bits"] - clean["bits"],
-                            "clean_bits_over_backdoor_bits": clean["bits"] / max(backdoor["bits"], 1),
-                            "backdoor_minus_clean_mean_linf": backdoor["mean_linf"] - clean["mean_linf"],
-                            "backdoor_minus_clean_test_asr": backdoor["test_asr"] - clean["test_asr"],
+                            "backdoor_minus_clean_bits": (
+                                backdoor["minimum_valid_bits"] - clean["minimum_valid_bits"]
+                            ),
+                            "clean_bits_over_backdoor_bits": (
+                                clean["minimum_valid_bits"]
+                                / max(backdoor["minimum_valid_bits"], 1)
+                            ),
                         }
                     )
                 else:
@@ -439,8 +516,6 @@ def build_pairwise(results: list[dict], asr_targets: list[float], epsilon_pixels
                         {
                             "backdoor_minus_clean_bits": None,
                             "clean_bits_over_backdoor_bits": None,
-                            "backdoor_minus_clean_mean_linf": None,
-                            "backdoor_minus_clean_test_asr": None,
                         }
                     )
                 pairs.append(pair)
@@ -484,7 +559,6 @@ def main() -> None:
     device = torch.device(args.device)
 
     results: list[dict] = []
-    epsilon_results: list[dict] = []
     for side, result_path in (("clean", args.clean_result), ("backdoor", args.backdoor_result)):
         for attack_goal in ("targeted", "non_targeted"):
             model, _ = load_attack_result_model(
@@ -524,7 +598,6 @@ def main() -> None:
                 )
                 for item in summary["matched"]:
                     results.append({"side": side, **item})
-                epsilon_results.append({"side": side, **summary})
                 reached_stop = summary["best_val_asr"] >= float(args.stop_asr)
 
     pairwise = build_pairwise(results, asr_targets, epsilon_pixels)
@@ -534,11 +607,13 @@ def main() -> None:
         "match_tolerance": args.match_tolerance,
         "stop_asr": args.stop_asr,
         "epsilon_pixels": epsilon_pixels,
-        "settings": vars(args),
         "results": results,
-        "epsilon_results": epsilon_results,
         "pairwise": pairwise,
-        "note": "Single seed results are a quick trend check, not a final statistical conclusion.",
+        "note": (
+            "minimum_valid_bits is the shortest tested quantized encoding whose decoded "
+            "validation ASR remains within the matching tolerance. Single-seed results "
+            "are a quick trend check."
+        ),
     }
     report_json = Path(args.report_json)
     report_json.parent.mkdir(parents=True, exist_ok=True)

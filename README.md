@@ -48,8 +48,11 @@ The matched-ASR experiment fixes epsilon from `4/255` through `16/255`,
 records validation ASR after every epoch, and matches the 10%--90% ASR levels
 within two percentage points. It keeps the p(x)+q(x) output head, uses the
 official GAP `log(CrossEntropy)` attack objective, and does not put epsilon in
-the loss. It evaluates the selected checkpoints on the test split and compares
-Clean/Backdoor bits at the same epsilon and ASR.
+the loss. For each matched checkpoint it tests 16-, 8-, and 4-bit parameter
+encodings, decodes each candidate, and keeps the shortest encoding whose
+validation ASR remains within the matching tolerance. The final comparison
+uses `minimum_valid_bits` at the same epsilon and ASR, plus the first epoch
+that entered the ASR interval.
 
 ```bash
 env PYTHON_BIN=/path/to/python GPU_ID=0 DATA_ROOT=/path/to/data \
@@ -60,4 +63,6 @@ The official-loss rerun stores outputs separately under
 `artifacts/mappings/badnet_matched_official`; the JSON and CSV reports are
 `reports/badnet_matched_asr_official_summary.json` and
 `reports/badnet_matched_asr_official.csv`, so the earlier custom-loss results
-under `badnet_matched` are preserved.
+under `badnet_matched` are preserved. The concise pairwise report contains
+validation/test ASR, first matched epoch, minimum valid bits, and the
+Clean/Backdoor bits difference.

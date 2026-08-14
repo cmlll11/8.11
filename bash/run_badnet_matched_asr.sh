@@ -11,9 +11,9 @@ log_step "Budget: epsilon=4..16/255, ASR=10..90%, tolerance=2%, epochs=60, batch
     --backdoorbench-root "${BACKDOORBENCH_ROOT}" \
     --gap-root "${GAP_ROOT}" \
     --data-root "${DATA_ROOT}" \
-    --output-root "${REPO_ROOT}/artifacts/mappings/badnet_matched" \
-    --report-json "${REPO_ROOT}/reports/badnet_matched_asr_summary.json" \
-    --report-csv "${REPO_ROOT}/reports/badnet_matched_asr.csv" \
+    --output-root "${REPO_ROOT}/artifacts/mappings/badnet_matched_official" \
+    --report-json "${REPO_ROOT}/reports/badnet_matched_asr_official_summary.json" \
+    --report-csv "${REPO_ROOT}/reports/badnet_matched_asr_official.csv" \
     --clean-result "${REPO_ROOT}/artifacts/models/clean_seed0_attack_result.pt" \
     --backdoor-result "${REPO_ROOT}/artifacts/models/badnet_seed0_attack_result.pt" \
     --target 0 \
@@ -30,8 +30,7 @@ log_step "Budget: epsilon=4..16/255, ASR=10..90%, tolerance=2%, epochs=60, batch
     --workers 4 \
     --lr 2e-4 \
     --ngf 64 \
-    --attack-margin 1.0 \
-    --attack-temperature 1.0 \
     --device cuda:0
 
-log_step "Complete: JSON=${REPO_ROOT}/reports/badnet_matched_asr_summary.json CSV=${REPO_ROOT}/reports/badnet_matched_asr.csv"
+log_step "Complete: JSON=${REPO_ROOT}/reports/badnet_matched_asr_official_summary.json CSV=${REPO_ROOT}/reports/badnet_matched_asr_official.csv"
+

@@ -41,3 +41,19 @@ comparison is written to `reports/badnet_pq_summary.json`.
 The epsilon-learning follow-up uses the same four settings but stores results
 under `artifacts/mappings/badnet_pq_epslearn` and writes
 `reports/badnet_pq_epslearn_summary.json`.
+
+## Matched-ASR fixed-epsilon validation
+
+The matched-ASR experiment fixes epsilon from `4/255` through `16/255`,
+records validation ASR after every epoch, and matches the 10%--90% ASR levels
+within two percentage points. It evaluates the selected checkpoints on the
+test split and compares Clean/Backdoor bits at the same epsilon and ASR.
+
+```bash
+env PYTHON_BIN=/path/to/python GPU_ID=0 DATA_ROOT=/path/to/data \
+  bash bash/run_badnet_matched_asr.sh
+```
+
+Outputs are stored under `artifacts/mappings/badnet_matched`; the JSON and CSV
+reports are `reports/badnet_matched_asr_summary.json` and
+`reports/badnet_matched_asr.csv`.

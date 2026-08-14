@@ -46,8 +46,10 @@ under `artifacts/mappings/badnet_pq_epslearn` and writes
 
 The matched-ASR experiment fixes epsilon from `4/255` through `16/255`,
 records validation ASR after every epoch, and matches the 10%--90% ASR levels
-within two percentage points. It evaluates the selected checkpoints on the
-test split and compares Clean/Backdoor bits at the same epsilon and ASR.
+within two percentage points. It keeps the p(x)+q(x) output head, uses the
+official GAP `log(CrossEntropy)` attack objective, and does not put epsilon in
+the loss. It evaluates the selected checkpoints on the test split and compares
+Clean/Backdoor bits at the same epsilon and ASR.
 
 ```bash
 env PYTHON_BIN=/path/to/python GPU_ID=0 DATA_ROOT=/path/to/data \

@@ -30,8 +30,6 @@ log_step "Budget: epsilon=4..16/255, ASR=10..90%, tolerance=2%, epochs=60, batch
     --workers 4 \
     --lr 2e-4 \
     --ngf 64 \
-    --attack-margin 1.0 \
-    --attack-temperature 1.0 \
     --device cuda:0
 
 log_step "Complete: JSON=${REPO_ROOT}/reports/badnet_matched_asr_summary.json CSV=${REPO_ROOT}/reports/badnet_matched_asr.csv"

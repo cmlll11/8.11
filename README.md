@@ -56,6 +56,8 @@ env PYTHON_BIN=/path/to/python GPU_ID=0 DATA_ROOT=/path/to/data \
   bash bash/run_badnet_matched_asr.sh
 ```
 
-Outputs are stored under `artifacts/mappings/badnet_matched`; the JSON and CSV
-reports are `reports/badnet_matched_asr_summary.json` and
-`reports/badnet_matched_asr.csv`.
+The official-loss rerun stores outputs separately under
+`artifacts/mappings/badnet_matched_official`; the JSON and CSV reports are
+`reports/badnet_matched_asr_official_summary.json` and
+`reports/badnet_matched_asr_official.csv`, so the earlier custom-loss results
+under `badnet_matched` are preserved.

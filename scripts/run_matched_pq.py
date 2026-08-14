@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.nn import functional as F
+from torch import nn
 
 from mdluap.codec import mapping_description_length_bits
 from mdluap.data import cifar10_split, loader
@@ -46,24 +46,6 @@ def attack_labels(model, images: torch.Tensor, attack_goal: str, target: int) ->
                 (images.shape[0],), int(target), dtype=torch.long, device=images.device
             )
         return clean_logits.argmin(dim=1)
-
-
-def margin_attack_loss(
-    logits: torch.Tensor,
-    labels: torch.Tensor,
-    *,
-    margin: float,
-    temperature: float,
-) -> torch.Tensor:
-    """Optimize a stable class margin without an epsilon term."""
-
-    target_logits = logits.gather(1, labels[:, None]).squeeze(1)
-    other_logits = logits.masked_fill(
-        F.one_hot(labels, num_classes=logits.shape[1]).bool(), float("-inf")
-    ).amax(dim=1)
-    score = target_logits - other_logits
-    # Multiplying by temperature keeps the loss scale stable when T changes.
-    return (float(temperature) * F.softplus((float(margin) - score) / float(temperature))).mean()
 
 
 @torch.no_grad()
@@ -196,8 +178,6 @@ def train_one_epsilon(
     ngf: int,
     seed: int,
     split_seed: int,
-    attack_margin: float,
-    attack_temperature: float,
     device: torch.device,
 ) -> dict:
     """Train one fixed-epsilon generator and select ASR-matched epochs."""
@@ -230,6 +210,7 @@ def train_one_epsilon(
     )
     mapping = FixedEpsilonPQMapping(generator, epsilon).to(device)
     optimizer = torch.optim.Adam(mapping.parameters(), lr=float(lr), betas=(0.5, 0.999))
+    criterion = nn.CrossEntropyLoss()
 
     base_metadata = {
         "protocol": "MDL-UAP-v1",
@@ -245,8 +226,7 @@ def train_one_epsilon(
         "epochs": int(epochs),
         "max_batches": int(max_batches),
         "ngf": int(ngf),
-        "attack_margin": float(attack_margin),
-        "attack_temperature": float(attack_temperature),
+        "attack_loss": "official_gap_log_cross_entropy",
         "result": str(Path(result_path).resolve()),
     }
     checkpoints = output / "checkpoints"
@@ -267,12 +247,8 @@ def train_one_epsilon(
             labels = attack_labels(model, images, attack_goal, target)
             optimizer.zero_grad(set_to_none=True)
             mapped_logits = model(mapping(images))
-            loss = margin_attack_loss(
-                mapped_logits,
-                labels,
-                margin=attack_margin,
-                temperature=attack_temperature,
-            )
+            # This is the official GAP objective: log(CrossEntropy).
+            loss = torch.log(criterion(mapped_logits, labels).clamp_min(1e-12))
             loss.backward()
             optimizer.step()
             losses.append(float(loss.detach().cpu()))
@@ -495,8 +471,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--ngf", type=int, default=64)
-    parser.add_argument("--attack-margin", type=float, default=1.0)
-    parser.add_argument("--attack-temperature", type=float, default=1.0)
     parser.add_argument("--device", default="cuda:0")
     return parser.parse_args()
 
@@ -546,8 +520,6 @@ def main() -> None:
                     ngf=args.ngf,
                     seed=args.seed,
                     split_seed=args.split_seed,
-                    attack_margin=args.attack_margin,
-                    attack_temperature=args.attack_temperature,
                     device=device,
                 )
                 for item in summary["matched"]:
@@ -585,3 +557,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

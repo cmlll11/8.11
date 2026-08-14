@@ -35,6 +35,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epsilon-max", type=parse_fraction, default=parse_fraction("16/255"))
     parser.add_argument("--epsilon-init-ratio", type=float, default=0.999)
     parser.add_argument("--epsilon-lambda", type=float, default=0.1)
+    parser.add_argument("--loss-mode", choices=("legacy", "min_radius"), default="legacy")
+    parser.add_argument("--attack-margin", type=float, default=1.0)
+    parser.add_argument("--attack-temperature", type=float, default=0.2)
+    parser.add_argument("--epsilon-lambda-start", type=float, default=None)
+    parser.add_argument("--epsilon-lambda-end", type=float, default=None)
+    parser.add_argument("--attack-lambda-start", type=float, default=0.1)
+    parser.add_argument("--attack-lambda-end", type=float, default=1.0)
+    parser.add_argument("--epsilon-warmup-epochs", type=int, default=10)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--split-seed", type=int, default=2026)
     parser.add_argument("--epochs", type=int, default=60)
@@ -87,6 +95,14 @@ def main() -> None:
         device=device,
         checkpoint_path=str(output / "checkpoint.pt"),
         max_batches=args.max_batches,
+        loss_mode=args.loss_mode,
+        attack_margin=args.attack_margin,
+        attack_temperature=args.attack_temperature,
+        epsilon_lambda_start=args.epsilon_lambda_start,
+        epsilon_lambda_end=args.epsilon_lambda_end,
+        attack_lambda_start=args.attack_lambda_start,
+        attack_lambda_end=args.attack_lambda_end,
+        epsilon_warmup_epochs=args.epsilon_warmup_epochs,
     )
 
     final_path = output / "mapping.pt"
@@ -102,6 +118,14 @@ def main() -> None:
             "learned_epsilon": float(mapping.effective_epsilon().detach().cpu()),
             "epsilon_init_ratio": args.epsilon_init_ratio,
             "epsilon_lambda": args.epsilon_lambda,
+            "loss_mode": args.loss_mode,
+            "attack_margin": args.attack_margin,
+            "attack_temperature": args.attack_temperature,
+            "epsilon_lambda_start": args.epsilon_lambda_start,
+            "epsilon_lambda_end": args.epsilon_lambda_end,
+            "attack_lambda_start": args.attack_lambda_start,
+            "attack_lambda_end": args.attack_lambda_end,
+            "epsilon_warmup_epochs": args.epsilon_warmup_epochs,
             "seed": args.seed,
             "split_seed": args.split_seed,
             "epochs": args.epochs,

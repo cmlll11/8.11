@@ -72,7 +72,7 @@ class ImageDependentPQMapping(nn.Module):
         q = (raw_q + 1.0) / 4.0
         raw_delta = p + q - images
         epsilon = self.effective_epsilon().to(dtype=images.dtype)
-        # Smooth clipping gives attack loss a gradient with respect to epsilon;
-        # a hard clamp would make the epsilon penalty stay at its upper bound.
-        delta = epsilon * torch.tanh(raw_delta / epsilon.clamp_min(1e-8))
+        # Keep a smooth bound without dividing by epsilon. Dividing by a
+        # small epsilon saturates tanh and blocks generator gradients.
+        delta = epsilon * torch.tanh(raw_delta)
         return (images + delta).clamp(0.0, 1.0)

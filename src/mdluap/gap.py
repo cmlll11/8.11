@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from .mappings import ImageDependentPQMapping, TargetedImageDependentMapping
 
@@ -144,11 +145,21 @@ def train_pq_gap(
     device: torch.device,
     checkpoint_path: str | None = None,
     max_batches: int = 50,
+    loss_mode: str = "legacy",
+    attack_margin: float = 1.0,
+    attack_temperature: float = 0.2,
+    epsilon_lambda_start: float | None = None,
+    epsilon_lambda_end: float | None = None,
+    attack_lambda_start: float = 0.1,
+    attack_lambda_end: float = 1.0,
+    epsilon_warmup_epochs: int = 10,
 ) -> dict:
     """Train targeted or classic least-likely non-targeted p+q GAP."""
 
     if attack_goal not in {"targeted", "non_targeted"}:
         raise ValueError("attack_goal must be targeted or non_targeted")
+    if loss_mode not in {"legacy", "min_radius"}:
+        raise ValueError("loss_mode must be legacy or min_radius")
     optimizer = torch.optim.Adam(mapping.parameters(), lr=float(lr), betas=(0.5, 0.999))
     criterion = nn.CrossEntropyLoss()
     start_epoch = 0
@@ -166,6 +177,7 @@ def train_pq_gap(
         attack_losses = []
         epsilon_losses = []
         total_losses = []
+        attack_scores = []
         for batch_index, (images, _labels) in enumerate(train_loader):
             if batch_index >= int(max_batches):
                 break
@@ -183,15 +195,50 @@ def train_pq_gap(
 
             optimizer.zero_grad(set_to_none=True)
             mapped = mapping(images)
-            attack_loss = criterion(model(mapped), attack_labels)
-            epsilon_loss = float(epsilon_lambda) * 255.0 * mapping.effective_epsilon()
-            total_loss = attack_loss + epsilon_loss
+            mapped_logits = model(mapped)
+            if loss_mode == "legacy":
+                attack_loss = criterion(mapped_logits, attack_labels)
+                epsilon_loss = float(epsilon_lambda) * 255.0 * mapping.effective_epsilon()
+                epsilon_weight = float(epsilon_lambda)
+                attack_weight = 1.0
+                attack_score = float("nan")
+                total_loss = attack_loss + epsilon_loss
+            else:
+                # Stop rewarding excess confidence after the requested margin
+                # is reached, so the optimizer can reduce the perturbation.
+                target_logits = mapped_logits.gather(1, attack_labels[:, None]).squeeze(1)
+                other_logits = mapped_logits.masked_fill(
+                    F.one_hot(attack_labels, num_classes=mapped_logits.shape[1]).bool(),
+                    float("-inf"),
+                ).amax(dim=1)
+                score = target_logits - other_logits
+                attack_loss = F.softplus(
+                    (float(attack_margin) - score) / float(attack_temperature)
+                ).mean()
+                warmup = max(int(epsilon_warmup_epochs), 1)
+                progress = min(
+                    max((epoch - warmup + 1) / max(int(epochs) - warmup, 1), 0.0),
+                    1.0,
+                )
+                eps_start = 4.0 if epsilon_lambda_start is None else float(epsilon_lambda_start)
+                eps_end = 1.0 if epsilon_lambda_end is None else float(epsilon_lambda_end)
+                epsilon_weight = eps_start + (eps_end - eps_start) * progress
+                attack_weight = float(attack_lambda_start) + (
+                    float(attack_lambda_end) - float(attack_lambda_start)
+                ) * progress
+                epsilon_loss = epsilon_weight * (
+                    mapping.effective_epsilon() / float(mapping.epsilon_max)
+                )
+                attack_score = float(score.detach().mean().cpu())
+                total_loss = attack_weight * attack_loss + epsilon_loss
             total_loss.backward()
             optimizer.step()
 
             attack_losses.append(float(attack_loss.detach().cpu()))
             epsilon_losses.append(float(epsilon_loss.detach().cpu()))
             total_losses.append(float(total_loss.detach().cpu()))
+            if loss_mode == "min_radius":
+                attack_scores.append(float(attack_score))
 
         epoch_record = {
             "epoch": epoch + 1,
@@ -200,6 +247,16 @@ def train_pq_gap(
             "total_loss": float(np.mean(total_losses)) if total_losses else float("nan"),
             "learned_epsilon": float(mapping.effective_epsilon().detach().cpu()),
         }
+        if loss_mode == "min_radius":
+            epoch_record.update(
+                {
+                    "loss_mode": loss_mode,
+                    "epsilon_weight": float(epsilon_weight),
+                    "attack_weight": float(attack_weight),
+                    "attack_margin": float(attack_margin),
+                    "attack_score": float(np.mean(attack_scores)) if attack_scores else float("nan"),
+                }
+            )
         history.append(epoch_record)
         print(epoch_record, flush=True)
         if checkpoint_path:

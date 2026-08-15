@@ -317,15 +317,6 @@ def train_one_epsilon(
             "val_max_linf": validation["max_linf"],
         }
         curve.append(record)
-        print(
-            {
-                "side": side,
-                "attack_goal": attack_goal,
-                "epsilon_pixels": epsilon_pixels,
-                **record,
-            },
-            flush=True,
-        )
 
         current_path = checkpoints / f"epoch{epoch:03d}.pt"
         if best_record is None or record["val_asr"] > best_record["val_asr"]:
@@ -626,6 +617,15 @@ def main() -> None:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(pairwise)
+
+    matched_pairs = sum(row["status"] == "matched_pair" for row in pairwise)
+    print(
+        f"Final matched-ASR results: pairs={len(pairwise)} "
+        f"matched_pairs={matched_pairs}",
+        flush=True,
+    )
+    for row in pairwise:
+        print(json.dumps(row, sort_keys=True), flush=True)
     print(f"Run complete: report={report_json.resolve()}")
     print(f"CSV complete: report={report_csv.resolve()}")
 

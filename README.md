@@ -65,4 +65,5 @@ The official-loss rerun stores outputs separately under
 `reports/badnet_matched_asr_official.csv`, so the earlier custom-loss results
 under `badnet_matched` are preserved. The concise pairwise report contains
 validation/test ASR, first matched epoch, minimum valid bits, and the
-Clean/Backdoor bits difference.
+Clean/Backdoor bits difference. The server log prints only this final pairwise
+table and the two report paths; it does not print every training epoch.

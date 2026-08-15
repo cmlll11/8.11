@@ -619,13 +619,27 @@ def main() -> None:
         writer.writerows(pairwise)
 
     matched_pairs = sum(row["status"] == "matched_pair" for row in pairwise)
-    print(
-        f"Final matched-ASR results: pairs={len(pairwise)} "
-        f"matched_pairs={matched_pairs}",
-        flush=True,
-    )
+    print(f"Final matched-ASR results: pairs={len(pairwise)}", flush=True)
+    print(f"matched_pairs: {matched_pairs}", flush=True)
     for row in pairwise:
-        print(json.dumps(row, sort_keys=True), flush=True)
+        print("---", flush=True)
+        for key in (
+            "attack_goal",
+            "epsilon_pixels",
+            "asr_target",
+            "status",
+            "clean_val_asr",
+            "backdoor_val_asr",
+            "clean_test_asr",
+            "backdoor_test_asr",
+            "clean_first_matched_epoch",
+            "backdoor_first_matched_epoch",
+            "clean_minimum_valid_bits",
+            "backdoor_minimum_valid_bits",
+            "backdoor_minus_clean_bits",
+            "clean_bits_over_backdoor_bits",
+        ):
+            print(f"{key}: {row.get(key)}", flush=True)
     print(f"Run complete: report={report_json.resolve()}")
     print(f"CSV complete: report={report_csv.resolve()}")
 

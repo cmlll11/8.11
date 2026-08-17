@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +66,22 @@ def build_mapping(checkpoint_path: Path, *, gap_root: str, device: torch.device)
         float(checkpoint["epsilon_max"]),
         epsilon_init_ratio=float(checkpoint.get("epsilon_init_ratio", 0.999)),
     )
-    mapping.load_state_dict(checkpoint["mapping"], strict=True)
+    state = dict(checkpoint["mapping"])
+    if "epsilon_logit" not in state:
+        # Older p+q checkpoints stored only generator weights.  Treat them as
+        # fixed-epsilon mappings by initializing the new bound at epsilon_max.
+        learned_epsilon = float(checkpoint.get("learned_epsilon", checkpoint["epsilon_max"]))
+        epsilon_max = float(checkpoint["epsilon_max"])
+        ratio = min(max(learned_epsilon / epsilon_max, 1e-6), 1.0 - 1e-6)
+        state["epsilon_logit"] = torch.tensor(math.log(ratio / (1.0 - ratio)))
+        loaded = mapping.load_state_dict(state, strict=False)
+        if loaded.missing_keys != [] or loaded.unexpected_keys != []:
+            raise RuntimeError(
+                "legacy mapping checkpoint has unexpected state keys: "
+                f"missing={loaded.missing_keys}, unexpected={loaded.unexpected_keys}"
+            )
+    else:
+        mapping.load_state_dict(state, strict=True)
     return mapping.to(device).eval(), checkpoint
 
 

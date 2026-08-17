@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 
-SUPPORTED_QUANTIZATION_BITS = (16, 8, 4)
+SUPPORTED_QUANTIZATION_BITS = (32, 16, 8, 4)
 
 
 def _tensor_record(
@@ -23,7 +23,34 @@ def _tensor_record(
             f"unsupported quantization_bits={quantization_bits}; "
             f"choose one of {SUPPORTED_QUANTIZATION_BITS}"
         )
-    value = tensor.detach().float().cpu()
+    original = tensor.detach().cpu()
+    if not original.is_floating_point():
+        # Integer buffers such as BatchNorm counters are stored losslessly.
+        value = original
+        payload = value.numpy().tobytes(order="C")
+        header = {
+            "name": name,
+            "shape": list(value.shape),
+            "scale": 1.0,
+            "dtype": str(value.numpy().dtype),
+            "quantization_bits": int(quantization_bits),
+            "lossless": True,
+        }
+        return header, payload, value.clone()
+
+    value = original.float()
+    if quantization_bits == 32:
+        payload = value.numpy().astype(np.float32).tobytes(order="C")
+        header = {
+            "name": name,
+            "shape": list(value.shape),
+            "scale": 1.0,
+            "dtype": "float32",
+            "quantization_bits": 32,
+            "lossless": True,
+        }
+        return header, payload, value.clone()
+
     max_abs = float(value.abs().max().item())
     max_code = (1 << (int(quantization_bits) - 1)) - 1
     scale = max(max_abs / max_code, 1e-12)
@@ -78,8 +105,8 @@ def _encode_tensors(
     epsilon: float,
     attack_goal: str | None,
     quantization_bits: int,
-) -> tuple[dict, dict[str, torch.Tensor]]:
-    """Encode tensors and return syntax statistics plus decoded tensors."""
+) -> tuple[dict, dict[str, torch.Tensor], bytes]:
+    """Encode tensors and return statistics, decoded tensors, and bytes."""
 
     records = []
     payload = bytearray()
@@ -120,14 +147,14 @@ def _encode_tensors(
         "quantization_bits": int(quantization_bits),
         "protocol": "MDL-UAP-v1",
     }
-    return stats, decoded_tensors
+    return stats, decoded_tensors, header_bytes + compressed
 
 
 def mapping_description_length_bits(mapping_path: str, quantization_bits: int = 16) -> dict:
     """Return compressed bits for one fixed quantization scheme."""
 
     checkpoint = torch.load(mapping_path, map_location="cpu", weights_only=False)
-    stats, _ = _encode_tensors(
+    stats, _, _ = _encode_tensors(
         _mapping_tensors(checkpoint),
         mode=checkpoint["mode"],
         target=checkpoint["target"],
@@ -144,7 +171,7 @@ def quantized_mapping_state_dict(
     """Return a decoded mapping state and its exact candidate code length."""
 
     checkpoint = torch.load(mapping_path, map_location="cpu", weights_only=False)
-    stats, decoded = _encode_tensors(
+    stats, decoded, _ = _encode_tensors(
         _mapping_tensors(checkpoint),
         mode=checkpoint["mode"],
         target=checkpoint["target"],
@@ -159,3 +186,19 @@ def quantized_mapping_state_dict(
             decoded[name] = tensor.detach().cpu().clone()
     return decoded, stats
 
+
+def encode_mapping(
+    mapping_path: str, quantization_bits: int
+) -> tuple[dict[str, torch.Tensor], dict, bytes]:
+    """Return decoded state, statistics, and the exact encoded byte stream."""
+
+    checkpoint = torch.load(mapping_path, map_location="cpu", weights_only=False)
+    stats, decoded, encoded = _encode_tensors(
+        _mapping_tensors(checkpoint),
+        mode=checkpoint["mode"],
+        target=checkpoint["target"],
+        epsilon=checkpoint["epsilon"],
+        attack_goal=checkpoint.get("attack_goal"),
+        quantization_bits=quantization_bits,
+    )
+    return decoded, stats, encoded

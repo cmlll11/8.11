@@ -67,3 +67,21 @@ under `badnet_matched` are preserved. The concise pairwise report contains
 validation/test ASR, first matched epoch, minimum valid bits, and the
 Clean/Backdoor bits difference. The server log prints only this final pairwise
 table and the two report paths; it does not print every training epoch.
+
+## Multi-trigger x+f hidden-feature validation
+
+The multi-trigger follow-up trains official BackdoorBench BadNet, Blended,
+low-frequency, and WaNet classifiers, then trains the existing official-loss
+image-dependent `x+f(x)` GAP generator for targeted and least-likely
+non-targeted goals. The final probe uses the same 1000 CIFAR-10 test samples
+and one shared 8-bit per-channel quantizer across all qualified triggers.
+
+```bash
+env PYTHON_BIN=/path/to/python GPU_ID=0 DATA_ROOT=/path/to/data \
+  bash bash/run_backdoorbench_trigger_pairs.sh
+```
+
+Model gates are written to `reports/backdoorbench_trigger_gates.json`. Hidden
+feature rows and trigger-versus-clean entropy differences are written to
+`reports/backdoorbench_residual_hidden_feature_info.json` and `.csv`; failed
+trigger models are recorded but excluded from the entropy comparison.

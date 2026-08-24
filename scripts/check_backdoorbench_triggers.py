@@ -49,7 +49,9 @@ def load_official_datasets(result_path: str, root: str):
 def accuracy(model, dataset, *, device: torch.device, workers: int, batch_size: int) -> float:
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
     correct = total = 0
-    for images, labels in data_loader:
+    for batch in data_loader:
+        # BackdoorBench samples may carry metadata after image and label.
+        images, labels = batch[0], batch[1]
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
         predictions = model(images).argmax(dim=1)

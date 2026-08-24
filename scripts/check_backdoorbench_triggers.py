@@ -72,11 +72,14 @@ def main() -> None:
     args = parser.parse_args()
 
     device = torch.device(args.device)
-    clean_model, _ = load_attack_result_model(
+    clean_wrapper, _ = load_attack_result_model(
         args.clean_result,
         backdoorbench_root=args.backdoorbench_root,
         device=device,
     )
+    # Official BackdoorBench datasets already apply CIFAR-10 normalization.
+    # Use the underlying classifier here, not the raw-image adapter.
+    clean_model = clean_wrapper.model
     rows = {}
     for trigger, result_path in args.trigger_result:
         result_file = Path(result_path)
@@ -89,11 +92,12 @@ def main() -> None:
             continue
 
         datasets = load_official_datasets(str(result_file), args.backdoorbench_root)
-        backdoor_model, metadata = load_attack_result_model(
+        backdoor_wrapper, metadata = load_attack_result_model(
             str(result_file),
             backdoorbench_root=args.backdoorbench_root,
             device=device,
         )
+        backdoor_model = backdoor_wrapper.model
         clean_accuracy = accuracy(
             clean_model, datasets["clean_test"], device=device,
             workers=args.workers, batch_size=args.batch_size,
@@ -133,7 +137,7 @@ def main() -> None:
             f"status={rows[trigger]['status']}",
             flush=True,
         )
-        del backdoor_model
+        del backdoor_model, backdoor_wrapper
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 

@@ -118,7 +118,12 @@ done
 
 TRIGGER_ARGS=()
 for trigger in badnet blended lf wanet; do
-    TRIGGER_ARGS+=(--trigger-result "${trigger}=${MODEL_ROOT}/${trigger}_seed${MODEL_SEED}_attack_result.pt")
+    # BackdoorBench's dataset loader reconstructs paths from the original
+    # record/ directory, so gate checks use the official result location.
+    TRIGGER_ARGS+=(
+        --trigger-result
+        "${trigger}=${BACKDOORBENCH_ROOT}/record/mdl_uap_${trigger}_seed${MODEL_SEED}/attack_result.pt"
+    )
 done
 
 "${PYTHON_BIN}" "${REPO_ROOT}/scripts/check_backdoorbench_triggers.py" \

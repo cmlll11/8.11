@@ -30,20 +30,21 @@ def write_partition(root: Path, data: np.ndarray, labels: list[int], meta: dict)
     for batch_index, indices in enumerate(boundaries, start=1):
         if len(indices) == 0:
             raise ValueError("each partition batch must contain at least one sample")
+        # torchvision loads CIFAR-10 pickle keys as strings with latin1.
         payload = {
-            b"batch_label": f"hard-sample partition {batch_index}".encode(),
-            b"data": data[indices],
-            b"labels": [labels[int(i)] for i in indices],
-            b"filenames": [f"partition_{int(i)}.png" for i in indices],
+            "batch_label": f"hard-sample partition {batch_index}",
+            "data": data[indices],
+            "labels": [labels[int(i)] for i in indices],
+            "filenames": [f"partition_{int(i)}.png" for i in indices],
         }
         with (batch_root / f"data_batch_{batch_index}").open("wb") as handle:
             pickle.dump(payload, handle, protocol=2)
     with (batch_root / "batches.meta").open("wb") as handle:
         pickle.dump(
             {
-                b"num_cases_per_batch": 10000,
-                b"label_names": [str(i).encode() for i in range(10)],
-                b"num_vis": 3072,
+                "num_cases_per_batch": 10000,
+                "label_names": [str(i) for i in range(10)],
+                "num_vis": 3072,
             },
             handle,
             protocol=2,

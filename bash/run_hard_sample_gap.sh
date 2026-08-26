@@ -20,7 +20,7 @@ mkdir -p "${MODEL_ROOT}" "${MAPPING_ROOT}" "${OUTPUT_ROOT}"
 if [[ ! -f "${PARTITION_ROOT}/manifest.json" ]]; then
     "${PYTHON_BIN}" "${REPO_ROOT}/scripts/prepare_hard_sample_partitions.py" \
         --data-root "${DATA_ROOT}" --output-root "${PARTITION_ROOT}" \
-        --selection-size 20000 --seed 2026
+        --selection-size 10000 --seed 2026
 fi
 
 SELECTION_DATA="${PARTITION_ROOT}/selection"
@@ -136,7 +136,7 @@ train_mapping() {
 }
 
 log_step "Purpose: hard-sample targeted x+f GAP probe"
-log_step "Data: selection=20000 shared=30000, hard pool=CIFAR-10 test"
+log_step "Data: selection=10000 shared=40000, hard pool=CIFAR-10 test"
 
 for seed in 0 1 2 3 4; do
     train_clean clean_select "${seed}" "${SELECTION_DATA}"

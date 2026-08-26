@@ -59,7 +59,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--output-root", required=True)
-    parser.add_argument("--selection-size", type=int, default=10000)
+    parser.add_argument("--selection-size", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=2026)
     args = parser.parse_args()
 

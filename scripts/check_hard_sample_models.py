@@ -31,7 +31,18 @@ def load_official_datasets(result_path: Path, root: str):
 
     torch.load = trusted_torch_load
     try:
-        return load_attack_result(str(result_path))
+        datasets = load_attack_result(str(result_path))
+        # BackdoorBench stores generated PNG paths relative to its root.
+        # Make them absolute before restoring the caller's working directory.
+        for key in ("bd_train", "bd_test"):
+            dataset = datasets.get(key)
+            if dataset is None:
+                continue
+            container = dataset.wrapped_dataset.bd_data_container
+            for item in container.data_dict.values():
+                if isinstance(item, dict) and "path" in item:
+                    item["path"] = str(Path(item["path"]).resolve())
+        return datasets
     finally:
         torch.load = original_torch_load
         os.chdir(previous)

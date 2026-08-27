@@ -8,6 +8,9 @@ TARGET_LABEL=0
 EPOCHS=100
 MODEL_ROOT="${REPO_ROOT}/artifacts/models/hard_sample_gap"
 MAPPING_ROOT="${REPO_ROOT}/artifacts/mappings/hard_sample_gap"
+# The old clean_select artifacts were trained on the 3,000-image partition.
+# Keep them untouched and write the corrected 47,000-image runs separately.
+CLEAN_SELECT_GROUP="clean_select_shared"
 # Keep partitions below DATA_ROOT so BackdoorBench can reconstruct them from
 # the saved dataset_path inside attack_result.pt.
 PARTITION_ROOT="${DATA_ROOT}/hard_sample_gap"
@@ -22,6 +25,18 @@ if [[ ! -f "${PARTITION_ROOT}/manifest.json" ]]; then
         --data-root "${DATA_ROOT}" --output-root "${PARTITION_ROOT}" \
         --selection-size 3000 --seed 2026
 fi
+
+"${PYTHON_BIN}" - "${PARTITION_ROOT}/manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if manifest.get("selection_size") != 3000 or manifest.get("shared_size") != 47000:
+    raise SystemExit(
+        "partition mismatch: expected selection=3000 and shared=47000"
+    )
+PY
 
 SELECTION_DATA="${PARTITION_ROOT}/selection"
 SHARED_DATA="${PARTITION_ROOT}/shared"
@@ -136,10 +151,10 @@ train_mapping() {
 }
 
 log_step "Purpose: hard-sample targeted x+f GAP probe"
-log_step "Data: selection=3000 shared=47000, hard pool=CIFAR-10 test"
+log_step "Data: train=47000, hard-sample candidate pool=3000 held out"
 
 for seed in 0 1 2 3 4; do
-    train_clean clean_select "${seed}" "${SELECTION_DATA}"
+    train_clean "${CLEAN_SELECT_GROUP}" "${seed}" "${SHARED_DATA}"
 done
 for seed in 5 6 7 8 9; do
     train_clean clean_eval "${seed}" "${SHARED_DATA}"
@@ -153,10 +168,11 @@ done
 PYTHONPATH="${PARTITION_PYTHONPATH}" "${PYTHON_BIN}" "${REPO_ROOT}/scripts/check_hard_sample_models.py" \
     --data-root "${DATA_ROOT}" --backdoorbench-root "${BACKDOORBENCH_ROOT}" \
     --model-root "${MODEL_ROOT}" --output "${REPO_ROOT}/reports/hard_sample_gap_model_gates.json" \
+    --selection-group "${CLEAN_SELECT_GROUP}" \
     --device cuda:0 --workers 4
 
 for seed in 0 1 2 3 4; do
-    train_mapping clean_select "${seed}" "${SELECTION_DATA}"
+    train_mapping "${CLEAN_SELECT_GROUP}" "${seed}" "${SHARED_DATA}"
 done
 for seed in 5 6 7 8 9; do
     train_mapping clean_eval "${seed}" "${SHARED_DATA}"
@@ -172,6 +188,8 @@ done
     --gap-root "${GAP_ROOT}" --model-root "${MODEL_ROOT}" \
     --mapping-root "${MAPPING_ROOT}" --output-root "${OUTPUT_ROOT}" \
     --summary "${SUMMARY}" --csv "${CSV}" --target 0 --epsilon 4/255 \
+    --candidate-root "${SELECTION_DATA}" \
+    --selection-group "${CLEAN_SELECT_GROUP}" \
     --gate-report "${REPO_ROOT}/reports/hard_sample_gap_model_gates.json" \
     --selection-seeds 0,1,2,3,4 --evaluation-seeds 5,6,7,8,9 \
     --backdoor-seeds 0,1,2,3,4 --hard-count 100 --batch-size 128 \

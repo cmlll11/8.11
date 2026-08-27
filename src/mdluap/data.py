@@ -33,7 +33,10 @@ def cifar10_split(root: str, *, split: str, split_seed: int = 2026, val_size: in
     full_train = cifar10_dataset(root, train=True)
     generator = torch.Generator().manual_seed(int(split_seed))
     order = torch.randperm(len(full_train), generator=generator).tolist()
-    indices = order[:-int(val_size)] if split == "train" else order[-int(val_size) :]
+    # Keep the historical 5,000-image validation split for full CIFAR-10,
+    # but avoid an empty training split for small hard-sample partitions.
+    effective_val_size = min(int(val_size), max(1, len(full_train) // 5))
+    indices = order[:-effective_val_size] if split == "train" else order[-effective_val_size:]
     return Subset(full_train, indices)
 
 

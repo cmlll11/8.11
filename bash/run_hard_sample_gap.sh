@@ -183,7 +183,7 @@ for trigger in badnet lf blended wanet; do
     done
 done
 
-"${PYTHON_BIN}" "${REPO_ROOT}/scripts/evaluate_hard_sample_gap.py" \
+PYTHONPATH="${PARTITION_PYTHONPATH}" "${PYTHON_BIN}" "${REPO_ROOT}/scripts/evaluate_hard_sample_gap.py" \
     --data-root "${DATA_ROOT}" --backdoorbench-root "${BACKDOORBENCH_ROOT}" \
     --gap-root "${GAP_ROOT}" --model-root "${MODEL_ROOT}" \
     --mapping-root "${MAPPING_ROOT}" --output-root "${OUTPUT_ROOT}" \

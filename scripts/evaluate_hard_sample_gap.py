@@ -28,6 +28,8 @@ def parse_fraction(value: str) -> float:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", required=True)
+    parser.add_argument("--candidate-root", required=True)
+    parser.add_argument("--selection-group", default="clean_select")
     parser.add_argument("--backdoorbench-root", required=True)
     parser.add_argument("--gap-root", required=True)
     parser.add_argument("--model-root", required=True)
@@ -56,7 +58,7 @@ def model_specs(args: argparse.Namespace) -> list[dict]:
     root = Path(args.model_root)
     specs = []
     for seed in ints(args.selection_seeds):
-        specs.append({"group": "clean_select", "trigger": "clean", "seed": seed, "partition": "selection", "result": root / "clean_select" / f"seed{seed}" / "attack_result.pt"})
+        specs.append({"group": "clean_select", "artifact_group": args.selection_group, "trigger": "clean", "seed": seed, "partition": "shared", "result": root / args.selection_group / f"seed{seed}" / "attack_result.pt"})
     for seed in ints(args.evaluation_seeds):
         specs.append({"group": "clean_eval", "trigger": "clean", "seed": seed, "partition": "shared", "result": root / "clean_eval" / f"seed{seed}" / "attack_result.pt"})
     for trigger in ("badnet", "lf", "blended", "wanet"):
@@ -66,7 +68,7 @@ def model_specs(args: argparse.Namespace) -> list[dict]:
 
 
 def mapping_path(root: Path, spec: dict) -> Path:
-    return root / spec["group"] / f"seed{spec['seed']}" / "mapping.pt"
+    return root / spec.get("artifact_group", spec["group"]) / f"seed{spec['seed']}" / "mapping.pt"
 
 
 def load_mapping(path: Path, args: argparse.Namespace, device: torch.device):
@@ -236,7 +238,7 @@ def main() -> None:
         if not mapping_path(mapping_root, spec).is_file():
             raise FileNotFoundError(mapping_path(mapping_root, spec))
 
-    full_test = cifar10_dataset(args.data_root, train=False)
+    candidate_pool = cifar10_dataset(args.candidate_root, train=True)
     selection_specs = [spec for spec in specs if spec["group"] == "clean_select"]
     failed_selection = [
         f"{spec['group']}_seed{spec['seed']}"
@@ -251,10 +253,10 @@ def main() -> None:
     clean_scores = []
     for spec in selection_specs:
         gate_status = gate_rows.get(f"{spec['group']}_seed{spec['seed']}", {}).get("status", "unknown")
-        _, rows = score_model(spec, mapping_path(mapping_root, spec), full_test, args, device, gate_status)
+        _, rows = score_model(spec, mapping_path(mapping_root, spec), candidate_pool, args, device, gate_status)
         clean_scores.extend([{**row, "model_group": spec["group"], "seed": spec["seed"]} for row in rows])
-    selected_indices = select_hard_samples(clean_scores, full_test, args)
-    hard_set = Subset(full_test, selected_indices)
+    selected_indices = select_hard_samples(clean_scores, candidate_pool, args)
+    hard_set = Subset(candidate_pool, selected_indices)
 
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -264,7 +266,7 @@ def main() -> None:
         hard_metadata.append(
             {
                 "sample_index": index,
-                "true_label": int(full_test[index][1]),
+                "true_label": int(candidate_pool[index][1]),
                 "clean_selection_success_count": sum(int(row["success"]) for row in per_model),
                 "clean_selection_success_rate": 0.0,
                 "mean_target_probability": sum(row["target_probability_after"] for row in per_model) / len(per_model),
@@ -301,7 +303,8 @@ def main() -> None:
     summary = {
         "protocol": "hard-sample-gap-v1",
         "dataset": "CIFAR-10",
-        "hard_pool": "official_test_set",
+        "hard_pool": "heldout_cifar10_train_partition",
+        "candidate_pool_size": len(candidate_pool),
         "epsilon_pixels": 4,
         "target": args.target,
         "hard_count": len(selected_indices),

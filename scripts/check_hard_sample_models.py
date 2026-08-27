@@ -68,6 +68,7 @@ def main() -> None:
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--backdoorbench-root", required=True)
     parser.add_argument("--model-root", required=True)
+    parser.add_argument("--selection-group", default="clean_select")
     parser.add_argument("--output", required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--workers", type=int, default=4)
@@ -85,7 +86,8 @@ def main() -> None:
 
     for group, seeds in (("clean_select", range(5)), ("clean_eval", range(5, 10))):
         for seed in seeds:
-            path = result_path(root, group, seed)
+            artifact_group = args.selection_group if group == "clean_select" else group
+            path = result_path(root, artifact_group, seed)
             wrapper, metadata = load_attack_result_model(
                 str(path), backdoorbench_root=args.backdoorbench_root, device=device
             )
